@@ -1,27 +1,34 @@
-# TRẠNG THÁI DỰ ÁN (PROJECT STATE)
-*Cập nhật lần cuối: 13/10/2026*
+# THEO DÕI TIẾN ĐỘ DỰ ÁN (PROJECT STATE)
+*Cập nhật lần cuối: Hoàn thiện M1 User Stories & Frontend Skeleton*
 
-## 1. Tổng quan (Project Overview)
-- **Môn học:** New Technologies in Software Engineering (Dự án 8 tuần)
-- **Tech Stack:** PERN Stack (PostgreSQL, Express, React, Node.js)
-- **Kiến trúc:** Client-Server API First. Tích hợp AI (LLM) an toàn qua Backend.
+## 1. Kịch bản & Kiến trúc (Architecture & Plan) - [TIẾN ĐỘ: 90% M1]
+- [x] Xác định 1 kịch bản người dùng (vertical-slice) duy nhất (Chốt: Course Assistant - Trợ lý học tập).
+- [x] Viết danh sách 8-15 User Stories chuẩn Milestone 1 (Đã hoàn thành 15 US có Acceptance Criteria).
+- [x] Vẽ sơ đồ kiến trúc ứng dụng tổng quan (docs/architecture.md).
+- [ ] Chốt danh sách API (API Contract) giữa Frontend và Backend.
 
-## 2. Trạng thái hiện tại (Current Status)
-- **Frontend (React/Vite):** Đã khởi tạo. (Đang chuẩn bị làm UI Skeleton).
-- **Backend (Node/Express):** Đã khởi tạo cấu trúc thư mục, cài đặt thư viện lõi.
-- **Database:** Chưa thiết lập (Sẽ làm ở Tuần 4).
-- **Git:** Đã cấu hình `.gitignore` chuẩn (chặn node_modules, .env).
+## 2. Front-end (Giao diện & Trải nghiệm) - [TIẾN ĐỘ: Đang làm Tuần 3]
+- [x] Khởi tạo React/Vite và làm sạch dự án.
+- [x] Thiết lập Layout chính với Sidebar, Header và Main Content.
+- [x] Tách Component và Cài đặt Điều hướng (React Router: Home, Chat, 404).
+- [ ] Xây dựng Form nhập liệu có xác thực (Validation).
+- [ ] Tích hợp dữ liệu giả (Mock data) để hiển thị danh sách/kết quả.
+- [ ] Code các trạng thái giao diện: Đang tải (Loading), Lỗi (Error), Trống (Empty).
 
-## 3. Lịch sử công việc (Changelog)
-- [x] Khởi tạo Frontend và Backend.
-- [x] Sửa lỗi bảng mã UTF-8 cho .gitignore.
-- [x] Xóa sạch thư mục rác trên GitHub.
-- [ ] Thiết lập Tailwind CSS cho Frontend.
-- [ ] Dựng Layout cơ bản (Header, Sidebar) bằng Mock Data.
+## 3. Back-end & Lưu trữ (Logic & Dữ liệu)
+- [x] Thiết lập thư mục Backend, cài đặt Express và cấu hình file `.env` (Đã chặn git).
+- [ ] Khởi tạo API Endpoint tiếp nhận yêu cầu từ Front-end.
+- [ ] Viết hàm kiểm tra tính hợp lệ của dữ liệu đầu vào (Input validation).
+- [ ] Kết nối Cơ sở dữ liệu (Dự kiến PostgreSQL) và viết hàm Lưu/Đọc dữ liệu.
+- [ ] Viết API test cơ bản cho một luồng hợp lệ và một luồng không hợp lệ.
 
-## 4. Các vấn đề đang gặp (Blockers / Issues)
-- Chưa có.
+## 4. Tích hợp AI (AI Core Feature)
+- [ ] Viết Service gọi API mô hình LLM từ bên trong Back-end.
+- [ ] Xử lý định dạng dữ liệu AI trả về (Đầu ra có cấu trúc - JSON Structured Output).
+- [ ] Cài đặt cơ chế phòng vệ (Safe fallback) khi model sập hoặc quá hạn thời gian.
+- [ ] Tạo file đánh giá (20 test cases) để đo lường độ chính xác và Guardrails.
+- [ ] Cập nhật file `docs/ai-usage-log.md` ghi nhận sự trợ giúp của AI.
 
-## 5. Nguyên tắc cốt lõi (AI Rules)
-- Không bao giờ để lộ API Key hoặc mật khẩu ở Frontend.
-- Dùng TypeScript cho toàn bộ dự án.
+## 5. Lịch sử công việc (Changelog gần nhất)
+- Đã Refactor tách `App.tsx` thành các Component (Sidebar) và Pages (DocumentManager, AIChatAssistant) riêng biệt.
+- Đã chốt file `docs/USER_STORIES.md` làm bảng truy vết (Traceability table) cho Milestone 1.
