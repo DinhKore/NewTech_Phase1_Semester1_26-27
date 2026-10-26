@@ -48,7 +48,9 @@ let globalVectorStore: MemoryChunk[] = [];
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY as string);
 const embeddingModel = genAI.getGenerativeModel({ model: "gemini-embedding-2" });
 // Dùng luôn SDK chính chủ của Google cho phần Chat, không dùng Langchain nữa
-const chatModel = genAI.getGenerativeModel({ model: "gemini-3.8-flash" });
+const primaryModel = genAI.getGenerativeModel({ model: "gemini-3.8-flash" });
+const fallbackModel = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
+
 // Hàm toán học tính độ tương đồng Cosine
 function cosineSimilarity(vecA: number[], vecB: number[]): number {
     let dotProduct = 0;
@@ -61,6 +63,39 @@ function cosineSimilarity(vecA: number[], vecB: number[]): number {
     }
     if (normA === 0 || normB === 0) return 0;
     return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+}
+
+/**
+ * Hàm gọi Gemini an toàn:
+ * 1. Thử lại tối đa 3 lần nếu dính lỗi 503 (quá tải tạm thời)
+ * 2. Nếu vẫn sập, chuyển sang model dự phòng `gemini-flash-latest`
+ */
+async function generateContentWithRetry(prompt: string) {
+    const payload = {
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        generationConfig: { maxOutputTokens: 1000 }
+    };
+
+    // 1. Thử model chính gemini-3.8-flash (Tối đa 3 lần)
+    for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+            return await primaryModel.generateContent(payload);
+        } catch (error: any) {
+            const is503 = error?.status === 503 || error?.message?.includes("503");
+            if (is503 && attempt < 3) {
+                console.log(`⚠️ Gemini 3.8 Flash đang quá tải (503). Đang đợi 2.5s để thử lại lần ${attempt}/3...`);
+                await new Promise((resolve) => setTimeout(resolve, 2500 * attempt));
+            } else if (is503 && attempt === 3) {
+                console.log("🔴 Gemini 3.8 Flash vẫn quá tải. Chuyển sang model dự phòng (gemini-flash-latest)...");
+                break;
+            } else {
+                throw error; // Các lỗi khác (như 401, 400) văng ra ngay
+            }
+        }
+    }
+
+    // 2. Chạy model dự phòng nếu model chính liên tục nghẽn
+    return await fallbackModel.generateContent(payload);
 }
 
 // ==========================================
@@ -174,14 +209,8 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<any> => {
     CÂU HỎI CỦA SINH VIÊN: ${question}`;
 
         console.log("Đang chờ Gemini suy nghĩ...");
-        // Gọi thẳng từ SDK chính chủ của Google
-        const result = await chatModel.generateContent({
-            contents: [{ role: "user", parts: [{ text: prompt }] }],
-            generationConfig: {
-                maxOutputTokens: 1000,
-            }
-        }, { timeout: 30000 }); // Ép ngắt sau 30 giây nếu không có phản hồi
-
+        // Sử dụng hàm gọi an toàn đã tích hợp Retry & Fallback
+        const result = await generateContentWithRetry(prompt);
         const responseText = result.response.text();
 
         return res.status(200).json({
