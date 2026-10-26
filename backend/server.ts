@@ -8,23 +8,17 @@ import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { GoogleGenerativeAI } from "@google/generative-ai"; // Thêm SDK chính chủ của Google
 
 dotenv.config();
-
 //// Sửa lại hàm kiểm tra để in raw data
 //async function checkAvailableModels() {
 //    try {
-//        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${process.env.GEMINI_API_KEY}`);
+//        const response = await fetch(`[https://generativelanguage.googleapis.com/v1beta/models?key=$](https://generativelanguage.googleapis.com/v1beta/models?key=$){process.env.GEMINI_API_KEY}`);
 //        const data = await response.json();
 //        console.log("🔴 PHẢN HỒI GỐC TỪ GOOGLE API:\n", JSON.stringify(data, null, 2));
 //    } catch (error) {
 //        console.error("Lỗi fetch:", error);
 //    }
 //}
-//checkAvailableModels();
-
-
-
-
-
+//checkAvailableModels()
 
 const app = express();
 app.use(cors());
@@ -44,12 +38,13 @@ interface MemoryChunk {
 
 let globalVectorStore: MemoryChunk[] = [];
 
-// Khởi tạo AI Models (Tách biệt Embedding chính chủ và LLM Langchain)
+// Khởi tạo AI Models
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY as string);
 const embeddingModel = genAI.getGenerativeModel({ model: "gemini-embedding-2" });
-// Dùng luôn SDK chính chủ của Google cho phần Chat, không dùng Langchain nữa
-const primaryModel = genAI.getGenerativeModel({ model: "gemini-3.8-flash" });
-const fallbackModel = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
+
+// Dùng SDK chính chủ của Google cho phần Chat & Quiz
+const primaryModel = genAI.getGenerativeModel({ model: "gemini-flash-lite-latest" });
+const fallbackModel = genAI.getGenerativeModel({ model: "gemini-3.5-flash-latest" });
 
 // Hàm toán học tính độ tương đồng Cosine
 function cosineSimilarity(vecA: number[], vecB: number[]): number {
@@ -68,28 +63,33 @@ function cosineSimilarity(vecA: number[], vecB: number[]): number {
 /**
  * Hàm gọi Gemini an toàn:
  * 1. Thử lại tối đa 3 lần nếu dính lỗi 503 (quá tải tạm thời)
- * 2. Nếu vẫn sập, chuyển sang model dự phòng `gemini-flash-latest`
+ * 2. Nếu vẫn sập, chuyển sang model dự phòng `gemini-3.5-flash-latest`
+ * 3. Hỗ trợ tham số responseMimeType để ép kiểu JSON chuẩn khi cần
  */
-async function generateContentWithRetry(prompt: string) {
+async function generateContentWithRetry(prompt: string, isJsonOutput: boolean = false) {
     const payload = {
         contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig: { maxOutputTokens: 1000 }
+        generationConfig: {
+            maxOutputTokens: isJsonOutput ? 1000 : 400,
+            temperature: 0.1,
+            ...(isJsonOutput ? { responseMimeType: "application/json" } : {})
+        }
     };
 
-    // 1. Thử model chính gemini-3.8-flash (Tối đa 3 lần)
+    // 1. Thử model chính gemini-flash-lite-latest (Tối đa 3 lần)
     for (let attempt = 1; attempt <= 3; attempt++) {
         try {
             return await primaryModel.generateContent(payload);
         } catch (error: any) {
             const is503 = error?.status === 503 || error?.message?.includes("503");
             if (is503 && attempt < 3) {
-                console.log(`⚠️ Gemini 3.8 Flash đang quá tải (503). Đang đợi 2.5s để thử lại lần ${attempt}/3...`);
+                console.log(`⚠️ Gemini đang quá tải (503). Đang đợi 2.5s để thử lại lần ${attempt}/3...`);
                 await new Promise((resolve) => setTimeout(resolve, 2500 * attempt));
             } else if (is503 && attempt === 3) {
-                console.log("🔴 Gemini 3.8 Flash vẫn quá tải. Chuyển sang model dự phòng (gemini-flash-latest)...");
+                console.log("🔴 Gemini vẫn quá tải. Chuyển sang model dự phòng...");
                 break;
             } else {
-                throw error; // Các lỗi khác (như 401, 400) văng ra ngay
+                throw error;
             }
         }
     }
@@ -127,7 +127,6 @@ app.post('/api/upload', upload.single('document'), async (req: Request, res: Res
 
         globalVectorStore = [];
 
-        // Sử dụng hàm embedContent chính chủ từ Google SDK
         for (const doc of docs) {
             const result = await embeddingModel.embedContent(doc.pageContent);
             globalVectorStore.push({
@@ -167,7 +166,6 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<any> => {
 
         console.log(`Nhận câu hỏi: "${question}"`);
 
-        // Chuyển đổi câu hỏi bằng Google SDK
         const embedResult = await embeddingModel.embedContent(question);
         const questionVector = embedResult.embedding.values;
 
@@ -199,9 +197,10 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<any> => {
             });
         });
 
-        const prompt = `Bạn là Trợ lý học tập thông minh. Hãy sử dụng DUY NHẤT các tài liệu được cung cấp dưới đây để trả lời câu hỏi.
-    - Nếu thông tin KHÔNG CÓ trong tài liệu, HÃY TRẢ LỜI: "Tôi không tìm thấy thông tin này trong tài liệu của bạn." Tuyệt đối không bịa đặt thêm.
-    - Cung cấp câu trả lời rõ ràng, dễ hiểu.
+        const prompt = `Bạn là Trợ lý AI thông minh. Hãy dựa vào các tài liệu được cung cấp dưới đây để tóm tắt hoặc trả lời câu hỏi của người dùng.
+    - Hãy tổng hợp thông tin từ các trích đoạn để trả lời rõ ràng, cô động.
+    - CHỈ trả lời dựa trên thông tin có trong tài liệu.
+    - Nếu câu hỏi HOÀN TOÀN KHÔNG LIÊN QUAN hoặc không có manh mối nào trong tài liệu, lúc đó mới trả lời: "Tôi không tìm thấy thông tin này trong tài liệu của bạn."
 
     TÀI LIỆU CUNG CẤP:
     ${context}
@@ -209,8 +208,7 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<any> => {
     CÂU HỎI CỦA SINH VIÊN: ${question}`;
 
         console.log("Đang chờ Gemini suy nghĩ...");
-        // Sử dụng hàm gọi an toàn đã tích hợp Retry & Fallback
-        const result = await generateContentWithRetry(prompt);
+        const result = await generateContentWithRetry(prompt, false);
         const responseText = result.response.text();
 
         return res.status(200).json({
@@ -220,6 +218,70 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<any> => {
     } catch (error) {
         console.error("Lỗi API Chat:", error);
         return res.status(500).json({ error: 'Hệ thống AI đang bảo trì hoặc quá tải.' });
+    }
+});
+
+// ==========================================
+// 3. API TẠO TRẮC NGHIỆM (STRUCTURED OUTPUT)
+// ==========================================
+app.post('/api/quiz', async (req: Request, res: Response): Promise<any> => {
+    try {
+        if (!globalVectorStore || globalVectorStore.length === 0) {
+            return res.status(400).json({
+                error: 'Chưa có tài liệu nào được nạp. Vui lòng upload PDF trước khi tạo quiz.'
+            });
+        }
+
+        // Lấy tối đa 4 đoạn dữ liệu đại diện từ RAM
+        const step = Math.max(1, Math.floor(globalVectorStore.length / 4));
+        const sampleChunks = [];
+        for (let i = 0; i < globalVectorStore.length && sampleChunks.length < 4; i += step) {
+            sampleChunks.push(globalVectorStore[i]);
+        }
+
+        const context = sampleChunks
+            .map((item, idx) => `[Đoạn ${idx + 1}]: ${item.content}`)
+            .join('\n\n');
+
+        const prompt = `Bạn là một giảng viên chuyên nghiệp. Dựa DUY NHẤT vào tài liệu được cung cấp dưới đây, hãy tạo 3 câu hỏi trắc nghiệm ôn tập.
+
+TÀI LIỆU CUNG CẤP:
+${context}
+
+YÊU CẦU ĐẦU RA BẮT BUỘC:
+- Trả về danh sách câu hỏi trắc nghiệm dạng mảng JSON.
+- Mỗi câu hỏi gồm 4 lựa chọn (A, B, C, D), đáp án chính xác (chỉ ghi chữ cái A, B, C hoặc D) và giải thích ngắn gọn.
+
+Mẫu định dạng JSON:
+[
+  {
+    "id": 1,
+    "question": "Nội dung câu hỏi?",
+    "options": ["A. Lựa chọn 1", "B. Lựa chọn 2", "C. Lựa chọn 3", "D. Lựa chọn 4"],
+    "answer": "A",
+    "explanation": "Giải thích ngắn gọn"
+  }
+]`;
+
+        console.log("Đang yêu cầu Gemini tạo câu hỏi trắc nghiệm...");
+
+        // Gọi hàm retry an toàn và bật cờ isJsonOutput = true
+        const result = await generateContentWithRetry(prompt, true);
+        const rawText = result.response.text();
+
+        // Parse trực tiếp dữ liệu JSON
+        const quizData = JSON.parse(rawText.trim());
+
+        return res.status(200).json({
+            message: "Tạo bài trắc nghiệm thành công!",
+            quiz: quizData
+        });
+
+    } catch (error) {
+        console.error("Lỗi API Quiz:", error);
+        return res.status(500).json({
+            error: 'Không thể tạo bài trắc nghiệm. Vui lòng thử lại.'
+        });
     }
 });
 
