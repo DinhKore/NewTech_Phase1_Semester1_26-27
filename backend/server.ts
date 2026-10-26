@@ -4,9 +4,27 @@ import multer from 'multer';
 import dotenv from 'dotenv';
 import { PDFLoader } from "@langchain/community/document_loaders/fs/pdf";
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
-import { GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import { GoogleGenerativeAI } from "@google/generative-ai"; // Thêm SDK chính chủ của Google
 
 dotenv.config();
+
+//// Sửa lại hàm kiểm tra để in raw data
+//async function checkAvailableModels() {
+//    try {
+//        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${process.env.GEMINI_API_KEY}`);
+//        const data = await response.json();
+//        console.log("🔴 PHẢN HỒI GỐC TỪ GOOGLE API:\n", JSON.stringify(data, null, 2));
+//    } catch (error) {
+//        console.error("Lỗi fetch:", error);
+//    }
+//}
+//checkAvailableModels();
+
+
+
+
+
 
 const app = express();
 app.use(cors());
@@ -18,7 +36,7 @@ const upload = multer({
     limits: { fileSize: 5 * 1024 * 1024 }
 });
 
-// Cấu trúc lưu trữ Vector thủ công trên RAM (Bypass mọi lỗi thư viện vector)
+// Cấu trúc lưu trữ Vector thủ công trên RAM
 interface MemoryChunk {
     content: string;
     vector: number[];
@@ -26,19 +44,12 @@ interface MemoryChunk {
 
 let globalVectorStore: MemoryChunk[] = [];
 
-// Khởi tạo AI Models từ Google Gemini
-const embeddings = new GoogleGenerativeAIEmbeddings({
-    apiKey: process.env.GEMINI_API_KEY,
-    model: "text-embedding-004", // Model chuyên băm vector
-});
-
-const llm = new ChatGoogleGenerativeAI({
-    apiKey: process.env.GEMINI_API_KEY,
-    model: "gemini-1.5-flash",
-    temperature: 0, // AI trả lời nghiêm túc, bám sát tài liệu
-});
-
-// Hàm toán học tính độ tương đồng Cosine giữa 2 mảng vector
+// Khởi tạo AI Models (Tách biệt Embedding chính chủ và LLM Langchain)
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY as string);
+const embeddingModel = genAI.getGenerativeModel({ model: "gemini-embedding-2" });
+// Dùng luôn SDK chính chủ của Google cho phần Chat, không dùng Langchain nữa
+const chatModel = genAI.getGenerativeModel({ model: "gemini-3.8-flash" });
+// Hàm toán học tính độ tương đồng Cosine
 function cosineSimilarity(vecA: number[], vecB: number[]): number {
     let dotProduct = 0;
     let normA = 0;
@@ -73,21 +84,20 @@ app.post('/api/upload', upload.single('document'), async (req: Request, res: Res
 
         const textSplitter = new RecursiveCharacterTextSplitter({
             chunkSize: 1000,
-            chunkOverlap: 200, // Gối đầu 200 ký tự để giữ nguyên ngữ cảnh câu
+            chunkOverlap: 200,
         });
         const docs = await textSplitter.splitDocuments(rawDocs);
 
         console.log(`Đã băm thành ${docs.length} đoạn. Đang mã hóa Vector và lưu vào RAM...`);
 
-        // Xóa sạch dữ liệu cũ, chuẩn bị nạp tài liệu mới
         globalVectorStore = [];
 
-        // Mã hóa từng đoạn văn thành Vector và lưu vào mảng RAM
+        // Sử dụng hàm embedContent chính chủ từ Google SDK
         for (const doc of docs) {
-            const vector = await embeddings.embedQuery(doc.pageContent);
+            const result = await embeddingModel.embedContent(doc.pageContent);
             globalVectorStore.push({
                 content: doc.pageContent,
-                vector: vector
+                vector: result.embedding.values
             });
         }
 
@@ -105,7 +115,7 @@ app.post('/api/upload', upload.single('document'), async (req: Request, res: Res
 });
 
 // ==========================================
-// 2. API CHAT RAG (Có tính điểm Cosine % & Guardrails)
+// 2. API CHAT RAG 
 // ==========================================
 app.post('/api/chat', async (req: Request, res: Response): Promise<any> => {
     try {
@@ -114,7 +124,6 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<any> => {
             return res.status(400).json({ error: 'Vui lòng nhập câu hỏi.' });
         }
 
-        // Rào chắn (Guardrail): Bắt lỗi chưa upload file tài liệu
         if (globalVectorStore.length === 0) {
             return res.status(400).json({
                 error: 'Chưa có tài liệu nào được nạp. Vui lòng upload PDF trước.'
@@ -123,20 +132,18 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<any> => {
 
         console.log(`Nhận câu hỏi: "${question}"`);
 
-        // Bước 1: Biến câu hỏi của user thành Vector
-        const questionVector = await embeddings.embedQuery(question);
+        // Chuyển đổi câu hỏi bằng Google SDK
+        const embedResult = await embeddingModel.embedContent(question);
+        const questionVector = embedResult.embedding.values;
 
-        // Bước 2: Quét toàn bộ kho RAM và tính điểm Cosine Similarity với từng đoạn
         const scoredDocs = globalVectorStore.map(item => ({
             content: item.content,
             score: cosineSimilarity(questionVector, item.vector)
         }));
 
-        // Bước 3: Sắp xếp kết quả giảm dần và lấy Top 3 đoạn phù hợp nhất
         scoredDocs.sort((a, b) => b.score - a.score);
         const top3Docs = scoredDocs.slice(0, 3);
 
-        // Rào chắn: Nếu điểm tương đồng quá thấp, coi như không tìm thấy
         if (top3Docs.length === 0 || top3Docs[0].score < 0.15) {
             return res.status(200).json({
                 answer: "Xin lỗi, tôi không tìm thấy thông tin này trong tài liệu của bạn.",
@@ -157,7 +164,6 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<any> => {
             });
         });
 
-        // Guardrail Prompt: Chống bịa đặt (Hallucination)
         const prompt = `Bạn là Trợ lý học tập thông minh. Hãy sử dụng DUY NHẤT các tài liệu được cung cấp dưới đây để trả lời câu hỏi.
     - Nếu thông tin KHÔNG CÓ trong tài liệu, HÃY TRẢ LỜI: "Tôi không tìm thấy thông tin này trong tài liệu của bạn." Tuyệt đối không bịa đặt thêm.
     - Cung cấp câu trả lời rõ ràng, dễ hiểu.
@@ -168,13 +174,20 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<any> => {
     CÂU HỎI CỦA SINH VIÊN: ${question}`;
 
         console.log("Đang chờ Gemini suy nghĩ...");
-        const response = await llm.invoke(prompt);
+        // Gọi thẳng từ SDK chính chủ của Google
+        const result = await chatModel.generateContent({
+            contents: [{ role: "user", parts: [{ text: prompt }] }],
+            generationConfig: {
+                maxOutputTokens: 1000,
+            }
+        }, { timeout: 30000 }); // Ép ngắt sau 30 giây nếu không có phản hồi
+
+        const responseText = result.response.text();
 
         return res.status(200).json({
-            answer: response.content,
+            answer: responseText,
             sources: sourcesInfo
         });
-
     } catch (error) {
         console.error("Lỗi API Chat:", error);
         return res.status(500).json({ error: 'Hệ thống AI đang bảo trì hoặc quá tải.' });
