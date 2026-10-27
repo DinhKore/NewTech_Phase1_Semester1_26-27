@@ -7,6 +7,22 @@ export interface DocRecord {
     uploaded_at: string;
 }
 
+export interface UserRecord {
+    id: number;
+    email: string;
+    name: string;
+    role: 'admin' | 'user';
+    created_at: string;
+}
+
+export interface AIMetricSummary {
+    totalRequests: number;
+    avgLatency: number;
+    totalCostUSD: number;
+    refusedOrFailed: number;
+    recentLogs: any[];
+}
+
 export class DatabaseService {
     private db: DatabaseSync;
 
@@ -15,9 +31,27 @@ export class DatabaseService {
         this.initTables();
     }
 
-    // Khởi tạo bảng nếu chưa có
     private initTables(): void {
         this.db.exec(`
+      CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT UNIQUE NOT NULL,
+        name TEXT NOT NULL,
+        role TEXT DEFAULT 'user',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS ai_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        endpoint TEXT NOT NULL,
+        prompt_snippet TEXT,
+        latency_ms INTEGER NOT NULL,
+        tokens INTEGER DEFAULT 0,
+        cost_usd REAL DEFAULT 0.0,
+        status TEXT NOT NULL, -- 'SUCCESS', 'REFUSED', 'ERROR'
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
       CREATE TABLE IF NOT EXISTS documents (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         filename TEXT UNIQUE NOT NULL,
@@ -48,9 +82,68 @@ export class DatabaseService {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
     `);
+
+        // Tạo sẵn 1 tài khoản Admin mặc định để test đăng nhập
+        try {
+            this.db.prepare(`
+        INSERT OR IGNORE INTO users (email, name, role) 
+        VALUES ('admin@course.edu.vn', 'Quản Trị Viên', 'admin'),
+               ('student@course.edu.vn', 'Sinh Viên Mẫu', 'user')
+      `).run();
+        } catch (e) {
+            // bỏ qua nếu đã có
+        }
     }
 
-    // Lưu tài liệu mới (xóa file cũ trùng tên trước)
+    // --- QUẢN LÝ USER & AUTH ---
+    public getUserByEmail(email: string): UserRecord | undefined {
+        return this.db.prepare('SELECT * FROM users WHERE email = ?').get(email) as unknown as UserRecord | undefined;
+    }
+
+    public upsertUser(email: string, name: string, role: 'admin' | 'user' = 'user'): UserRecord {
+        this.db.prepare(`
+      INSERT INTO users (email, name, role) VALUES (?, ?, ?)
+      ON CONFLICT(email) DO UPDATE SET name = excluded.name
+    `).run(email, name, role);
+        return this.getUserByEmail(email)!;
+    }
+
+    // --- QUẢN LÝ AI LOGGING & METRICS ---
+    public logAIRequest(
+        endpoint: string,
+        promptSnippet: string,
+        latencyMs: number,
+        tokens: number,
+        costUSD: number,
+        status: 'SUCCESS' | 'REFUSED' | 'ERROR'
+    ): void {
+        try {
+            this.db.prepare(`
+        INSERT INTO ai_logs (endpoint, prompt_snippet, latency_ms, tokens, cost_usd, status)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(endpoint, promptSnippet.substring(0, 100), latencyMs, tokens, costUSD, status);
+        } catch (err) {
+            console.error("Lỗi ghi log AI:", err);
+        }
+    }
+
+    public getAIMetrics(): AIMetricSummary {
+        const totalRow = this.db.prepare('SELECT COUNT(*) as total FROM ai_logs').get() as { total: number };
+        const avgLatencyRow = this.db.prepare('SELECT AVG(latency_ms) as avgLat FROM ai_logs').get() as { avgLat: number };
+        const totalCostRow = this.db.prepare('SELECT SUM(cost_usd) as totalCost FROM ai_logs').get() as { totalCost: number };
+        const refusedRow = this.db.prepare("SELECT COUNT(*) as refused FROM ai_logs WHERE status != 'SUCCESS'").get() as { refused: number };
+        const recentLogs = this.db.prepare('SELECT * FROM ai_logs ORDER BY id DESC LIMIT 15').all();
+
+        return {
+            totalRequests: totalRow.total || 0,
+            avgLatency: Math.round(avgLatencyRow.avgLat || 0),
+            totalCostUSD: Number((totalCostRow.totalCost || 0).toFixed(5)),
+            refusedOrFailed: refusedRow.refused || 0,
+            recentLogs: recentLogs as any[]
+        };
+    }
+
+    // --- CÁC HÀM CŨ CHO DOCUMENTS & CHAT (GIỮ NGUYÊN) ---
     public saveDocument(filename: string, chunksCount: number): number {
         this.db.prepare('DELETE FROM documents WHERE filename = ?').run(filename);
         this.db.prepare('INSERT INTO documents (filename, chunks_count) VALUES (?, ?)').run(filename, chunksCount);
@@ -58,7 +151,6 @@ export class DatabaseService {
         return docRow.id;
     }
 
-    // Lưu danh sách các vector chunks
     public saveChunks(docId: number, chunks: Array<{ content: string; vector: number[] }>): void {
         const insertChunk = this.db.prepare('INSERT INTO document_chunks (doc_id, content, vector) VALUES (?, ?, ?)');
         for (const chunk of chunks) {
@@ -66,7 +158,6 @@ export class DatabaseService {
         }
     }
 
-    // Phục hồi vector từ SQLite lên RAM
     public getAllChunks(): Array<{ content: string; vector: number[] }> {
         const rows = this.db.prepare('SELECT content, vector FROM document_chunks').all() as unknown as Array<{ content: string; vector: string }>;
         return rows.map(r => ({
@@ -75,18 +166,15 @@ export class DatabaseService {
         }));
     }
 
-    // Lấy danh sách tài liệu hiển thị UI (Đã sửa lỗi 2352 bằng `as unknown as DocRecord[]`)
     public getDocuments(): DocRecord[] {
         return this.db.prepare('SELECT * FROM documents ORDER BY id DESC').all() as unknown as DocRecord[];
     }
 
-    // Lưu hội thoại chat
     public saveChat(question: string, answer: string, sources: any[]): void {
         const insertChat = this.db.prepare('INSERT INTO chat_history (question, answer, sources) VALUES (?, ?, ?)');
         insertChat.run(question, answer, JSON.stringify(sources));
     }
 
-    // Lấy lịch sử chat
     public getChatHistory(limit: number = 50): any[] {
         const rows = this.db.prepare('SELECT * FROM chat_history ORDER BY id ASC LIMIT ?').all(limit) as unknown as Array<{ question: string; answer: string; sources: string }>;
         const history: any[] = [];
