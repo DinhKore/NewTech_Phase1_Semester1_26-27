@@ -66,7 +66,12 @@ const AIChatAssistant = () => {
         if (!query.trim() || isLoading) return;
 
         const userQuestion = query.trim();
-        setMessages(prev => [...prev, { sender: 'user', text: userQuestion }]);
+        // 1. Đưa câu hỏi người dùng lên màn hình và tạo khung tin nhắn rỗng cho AI
+        setMessages(prev => [
+            ...prev,
+            { sender: 'user', text: userQuestion },
+            { sender: 'ai', text: '', sources: [] } // Chờ nhận token
+        ]);
         setInput('');
         setIsLoading(true);
 
@@ -77,23 +82,70 @@ const AIChatAssistant = () => {
                 body: JSON.stringify({ question: userQuestion })
             });
 
-            const data = await response.json();
+            if (!response.ok || !response.body) {
+                toast.error("Không thể kết nối tới máy chủ AI.");
+                setIsLoading(false);
+                return;
+            }
 
-            if (!response.ok) {
-                toast.error(data.error || "Lỗi khi AI xử lý câu hỏi.");
-                setMessages(prev => [...prev, {
-                    sender: 'ai',
-                    text: `⚠️ **Lỗi:** ${data.error || 'Hệ thống không thể xử lý câu hỏi lúc này.'}`
-                }]);
-            } else {
-                setMessages(prev => [...prev, {
-                    sender: 'ai',
-                    text: data.answer,
-                    sources: data.sources
-                }]);
+            // 2. Thiết lập Reader để đọc từng luồng byte từ SSE
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder('utf-8');
+            let doneReading = false;
+
+            while (!doneReading) {
+                const { value, done } = await reader.read();
+                doneReading = done;
+                if (value) {
+                    const rawChunk = decoder.decode(value, { stream: true });
+                    // Phân tách các dòng "data: {...}"
+                    const lines = rawChunk.split('\n');
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            try {
+                                const jsonStr = line.replace('data: ', '').trim();
+                                if (!jsonStr) continue;
+                                const parsed = JSON.parse(jsonStr);
+
+                                // Kịch bản A: Nhận danh sách nguồn trích dẫn
+                                if (parsed.type === 'sources') {
+                                    setMessages(prev => {
+                                        const next = [...prev];
+                                        const lastIdx = next.length - 1;
+                                        next[lastIdx] = { ...next[lastIdx], sources: parsed.sources };
+                                        return next;
+                                    });
+                                }
+
+                                // Kịch bản B: Nhận từng mảnh token chữ -> nối thêm vào cuối tin nhắn
+                                if (parsed.type === 'chunk') {
+                                    setMessages(prev => {
+                                        const next = [...prev];
+                                        const lastIdx = next.length - 1;
+                                        next[lastIdx] = { ...next[lastIdx], text: next[lastIdx].text + parsed.text };
+                                        return next;
+                                    });
+                                }
+
+                                // Kịch bản C: AI báo lỗi từ server
+                                if (parsed.type === 'error') {
+                                    toast.error(parsed.message);
+                                }
+
+                                // Kịch bản D: Luồng kết thúc
+                                if (parsed.type === 'done') {
+                                    setIsLoading(false);
+                                }
+                            } catch (e) {
+                                // Bỏ qua lỗi parsing nếu chunk bị cắt ngang
+                            }
+                        }
+                    }
+                }
             }
         } catch (err) {
-            toast.error("Không thể kết nối đến máy chủ Backend.");
+            toast.error("Lỗi mất kết nối với Backend.");
         } finally {
             setIsLoading(false);
         }

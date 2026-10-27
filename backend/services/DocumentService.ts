@@ -25,8 +25,8 @@ export class DocumentService {
         const rawDocs = await loader.load();
 
         const textSplitter = new RecursiveCharacterTextSplitter({
-            chunkSize: 1000,
-            chunkOverlap: 200,
+            chunkSize: 500,
+            chunkOverlap: 100,
         });
         const docs = await textSplitter.splitDocuments(rawDocs);
 

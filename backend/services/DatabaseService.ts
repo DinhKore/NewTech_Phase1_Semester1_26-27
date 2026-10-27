@@ -81,6 +81,22 @@ export class DatabaseService {
         total INTEGER NOT NULL,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
+
+      CREATE TABLE IF NOT EXISTS chat_sessions (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS chat_messages (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          session_id TEXT NOT NULL,
+          sender TEXT NOT NULL,
+          text TEXT NOT NULL,
+          sources TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY(session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
+        );
     `);
 
         // Tạo sẵn 1 tài khoản Admin mặc định để test đăng nhập
@@ -187,5 +203,41 @@ export class DatabaseService {
             });
         });
         return history;
+    }
+
+    // --- QUẢN LÝ CÁC PHIÊN CHAT (SESSIONS) ---
+    public getChatSessions(): Array<{ id: string; title: string; created_at: string }> {
+        return this.db.prepare('SELECT * FROM chat_sessions ORDER BY created_at DESC').all() as any[];
+    }
+
+    public createChatSession(id: string, title: string = 'Đoạn chat mới'): void {
+        this.db.prepare('INSERT INTO chat_sessions (id, title) VALUES (?, ?)').run(id, title);
+    }
+
+    public updateSessionTitle(id: string, title: string): void {
+        this.db.prepare('UPDATE chat_sessions SET title = ? WHERE id = ?').run(title, id);
+    }
+
+    public deleteChatSession(id: string): void {
+        this.db.prepare('DELETE FROM chat_messages WHERE session_id = ?').run(id);
+        this.db.prepare('DELETE FROM chat_sessions WHERE id = ?').run(id);
+    }
+
+    public getSessionMessages(sessionId: string): any[] {
+        const rows = this.db.prepare('SELECT sender, text, sources FROM chat_messages WHERE session_id = ? ORDER BY id ASC').all(sessionId) as any[];
+        return rows.map(r => ({
+            sender: r.sender,
+            text: r.text,
+            sources: r.sources ? JSON.parse(r.sources) : []
+        }));
+    }
+
+    public saveMessageToSession(sessionId: string, sender: 'user' | 'ai', text: string, sources: any[] = []): void {
+        this.db.prepare('INSERT INTO chat_messages (session_id, sender, text, sources) VALUES (?, ?, ?, ?)').run(
+            sessionId,
+            sender,
+            text,
+            JSON.stringify(sources)
+        );
     }
 }
