@@ -1,6 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
-// Định nghĩa kiểu dữ liệu dựa trên Backend trả về
 interface Source {
     id: number;
     score: string;
@@ -10,31 +9,46 @@ interface Source {
 interface Message {
     sender: 'user' | 'ai';
     text: string;
-    sources?: Source[]; // Chỉ AI mới có trích dẫn nguồn
+    sources?: Source[];
 }
 
 const AIChatAssistant = () => {
     const [messages, setMessages] = useState<Message[]>([
-        { sender: 'ai', text: 'Xin chào! Tôi đã nạp tài liệu của bạn vào bộ nhớ. Bạn muốn hỏi gì nào?' }
+        { sender: 'ai', text: 'Xin chào! Tôi là Trợ lý AI. Dữ liệu chat của bạn sẽ được lưu vĩnh viễn.' }
     ]);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
+    // KÉO DỮ LIỆU TỪ SQLITE LÊN KHI VỪA MỞ TRANG (HOẶC F5 / RELOAD)
+    useEffect(() => {
+        const fetchChatHistory = async () => {
+            try {
+                const response = await fetch('http://localhost:3000/api/history/chat');
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.history && data.history.length > 0) {
+                        setMessages(data.history); // Nạp lại toàn bộ lịch sử đã lưu
+                    }
+                }
+            } catch (err) {
+                console.error("Không thể tải lịch sử chat cũ.");
+            }
+        };
+
+        fetchChatHistory();
+    }, []);
+
     const handleSendMessage = async () => {
         if (!input.trim()) return;
 
         const userQuestion = input;
-        // 1. Cập nhật UI ngay lập tức: Thêm câu hỏi của user vào khung chat
         setMessages(prev => [...prev, { sender: 'user', text: userQuestion }]);
-        setInput(''); // Xóa trắng ô nhập liệu
-
-        // 2. Bật trạng thái Loading và dọn dẹp lỗi cũ
+        setInput('');
         setIsLoading(true);
         setError(null);
 
         try {
-            // 3. Gọi API thực tế
             const response = await fetch('http://localhost:3000/api/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -46,7 +60,6 @@ const AIChatAssistant = () => {
             if (!response.ok) {
                 setError(data.error || "Lỗi khi AI xử lý câu hỏi.");
             } else {
-                // 4. Thành công: Thêm câu trả lời của AI và danh sách nguồn vào UI
                 setMessages(prev => [...prev, {
                     sender: 'ai',
                     text: data.answer,
@@ -54,17 +67,15 @@ const AIChatAssistant = () => {
                 }]);
             }
         } catch (err) {
-            setError("Không thể kết nối đến máy chủ Backend. Hãy chắc chắn server đang chạy.");
+            setError("Không thể kết nối đến máy chủ Backend.");
         } finally {
-            // 5. Tắt trạng thái Loading
             setIsLoading(false);
         }
     };
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', height: '80vh', background: 'white', borderRadius: '12px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)', overflow: 'hidden' }}>
-
-            {/* KHU VỰC HIỂN THỊ LỊCH SỬ CHAT */}
+            {/* KHU VỰC HIỂN THỊ TIN NHẮN */}
             <div style={{ flex: 1, padding: '20px', overflowY: 'auto', background: '#f8fafc' }}>
                 {messages.map((msg, idx) => (
                     <div key={idx} style={{
@@ -73,15 +84,13 @@ const AIChatAssistant = () => {
                         borderRadius: '8px',
                         maxWidth: '80%',
                         marginBottom: '15px',
-                        alignSelf: msg.sender === 'user' ? 'flex-end' : 'flex-start',
-                        marginLeft: msg.sender === 'user' ? 'auto' : '0' // Ép tin nhắn user sang phải
+                        marginLeft: msg.sender === 'user' ? 'auto' : '0'
                     }}>
                         <b style={{ color: msg.sender === 'ai' ? '#0369a1' : '#166534' }}>
                             {msg.sender === 'ai' ? '🤖 Trợ lý AI:' : '🧑 Bạn:'}
                         </b>
                         <p style={{ marginTop: '5px', whiteSpace: 'pre-wrap', lineHeight: '1.5' }}>{msg.text}</p>
 
-                        {/* Nếu có sources (Trích dẫn Cosine) thì hiển thị */}
                         {msg.sources && msg.sources.length > 0 && (
                             <div style={{ marginTop: '12px', fontSize: '13px', borderTop: '1px solid #bae6fd', paddingTop: '10px' }}>
                                 <strong style={{ color: '#0284c7' }}>📚 Nguồn tham khảo:</strong>
@@ -97,14 +106,12 @@ const AIChatAssistant = () => {
                     </div>
                 ))}
 
-                {/* State: Đang Loading */}
                 {isLoading && (
                     <div style={{ background: '#f1f5f9', padding: '15px', borderRadius: '8px', maxWidth: '70%', marginBottom: '15px', color: '#64748b' }}>
-                        <i className="fa-spinner">⏳ AI đang đọc tài liệu và suy nghĩ...</i>
+                        <i>⏳ AI đang đọc tài liệu và suy nghĩ...</i>
                     </div>
                 )}
 
-                {/* State: Lỗi kết nối */}
                 {error && (
                     <div style={{ background: '#fee2e2', padding: '15px', borderRadius: '8px', maxWidth: '70%', marginBottom: '15px', color: '#ef4444', fontWeight: 'bold' }}>
                         ❌ {error}
@@ -112,7 +119,7 @@ const AIChatAssistant = () => {
                 )}
             </div>
 
-            {/* KHU VỰC NHẬP CÂU HỎI */}
+            {/* KHU VỰC NHẬP DỮ LIỆU */}
             <div style={{ padding: '20px', background: 'white', borderTop: '1px solid #e2e8f0', display: 'flex', gap: '10px' }}>
                 <input
                     type="text"
