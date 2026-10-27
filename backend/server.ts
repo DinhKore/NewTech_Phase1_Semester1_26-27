@@ -76,16 +76,27 @@ app.get('/api/documents', (req: Request, res: Response): any => {
 });
 
 // ==========================================
-// C. PHÂN HỆ HỌC TẬP AI (CHAT & QUIZ)
+// C. PHÂN HỆ HỌC TẬP AI (CHAT RAG - BẬT STREAMING)
 // ==========================================
 app.post('/api/chat', async (req: Request, res: Response): Promise<any> => {
     const startTime = Date.now();
     const { question } = req.body;
 
+    // Thiết lập Headers bắt buộc cho SSE Streaming
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders(); // Ép gửi header ngay lập tức
+
     try {
-        if (!question) return res.status(400).json({ error: 'Vui lòng nhập câu hỏi.' });
+        if (!question) {
+            res.write(`data: ${JSON.stringify({ type: 'error', message: 'Vui lòng nhập câu hỏi.' })}\n\n`);
+            return res.end();
+        }
+
         if (vectorStoreService.count === 0) {
-            return res.status(400).json({ error: 'Chưa có tài liệu nào được nạp. Vui lòng upload PDF trước.' });
+            res.write(`data: ${JSON.stringify({ type: 'error', message: 'Chưa có tài liệu nào được nạp.' })}\n\n`);
+            return res.end();
         }
 
         const questionVector = await aiService.getEmbedding(question);
@@ -94,9 +105,16 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<any> => {
         // Guardrail Cosine threshold 0.45
         if (top3Docs.length === 0 || top3Docs[0].score < 0.45) {
             const defaultAnswer = "Tôi không tìm thấy thông tin này trong tài liệu của bạn.";
+
+            // Ghi database bình thường
             dbService.saveChat(question, defaultAnswer, []);
             dbService.logAIRequest('/api/chat', question, Date.now() - startTime, 50, 0.00002, 'REFUSED');
-            return res.status(200).json({ answer: defaultAnswer, confidence: "0%" });
+
+            // Bắn 1 cục data về Frontend và đóng luồng
+            res.write(`data: ${JSON.stringify({ type: 'sources', sources: [] })}\n\n`);
+            res.write(`data: ${JSON.stringify({ type: 'chunk', text: defaultAnswer })}\n\n`);
+            res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+            return res.end();
         }
 
         let context = "";
@@ -121,48 +139,39 @@ ${context}
 
 CÂU HỎI: ${question}`;
 
-        const answer = await aiService.generateContentWithRetry(prompt);
-        dbService.saveChat(question, answer, sourcesInfo);
+        // 1. Đẩy nguồn tham khảo (sources) về Client trước tiên
+        res.write(`data: ${JSON.stringify({ type: 'sources', sources: sourcesInfo })}\n\n`);
+
+        // 2. Kích hoạt luồng Stream thay vì đợi toàn bộ
+        const resultStream = await aiService.generateContentStream(prompt);
+
+        let fullAnswer = ""; // Biến tạm lưu nguyên câu trả lời để ghi Database
+
+        // Lặp qua từng Chunk do Gemini trả về
+        for await (const chunk of resultStream.stream) {
+            const chunkText = chunk.text();
+            fullAnswer += chunkText;
+            // 3. Đẩy mảnh chữ này ngay lập tức qua SSE
+            res.write(`data: ${JSON.stringify({ type: 'chunk', text: chunkText })}\n\n`);
+        }
+
+        // 4. Khi Stream xong, lưu vào SQLite và Log chi phí
+        dbService.saveChat(question, fullAnswer, sourcesInfo);
 
         const latency = Date.now() - startTime;
-        const approxTokens = Math.round((prompt.length + answer.length) / 4);
+        const approxTokens = Math.round((prompt.length + fullAnswer.length) / 4);
         const cost = Number(((approxTokens / 1000) * 0.000075).toFixed(6));
         dbService.logAIRequest('/api/chat', question, latency, approxTokens, cost, 'SUCCESS');
 
-        return res.status(200).json({ answer, sources: sourcesInfo });
+        // 5. Kết thúc tín hiệu SSE
+        res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+        res.end();
+
     } catch (error) {
         dbService.logAIRequest('/api/chat', question || '', Date.now() - startTime, 0, 0, 'ERROR');
-        return res.status(500).json({ error: 'Hệ thống AI đang bảo trì hoặc quá tải.' });
+        res.write(`data: ${JSON.stringify({ type: 'error', message: 'Hệ thống AI đang bảo trì hoặc quá tải.' })}\n\n`);
+        res.end();
     }
-});
-
-app.post('/api/quiz', async (req: Request, res: Response): Promise<any> => {
-    const startTime = Date.now();
-    try {
-        if (vectorStoreService.count === 0) {
-            return res.status(400).json({ error: 'Chưa có tài liệu nào được nạp. Vui lòng upload PDF trước.' });
-        }
-
-        const chunks = vectorStoreService.getChunks();
-        const step = Math.max(1, Math.floor(chunks.length / 4));
-        const sampleChunks: MemoryChunk[] = [];
-        for (let i = 0; i < chunks.length && sampleChunks.length < 4; i += step) {
-            sampleChunks.push(chunks[i]);
-        }
-
-        const context = sampleChunks.map((item, idx) => `[Đoạn ${idx + 1}]: ${item.content}`).join('\n\n');
-        const quizData = await aiService.generateQuiz(context);
-
-        dbService.logAIRequest('/api/quiz', 'Tạo đề trắc nghiệm', Date.now() - startTime, 600, 0.00005, 'SUCCESS');
-        return res.status(200).json({ message: "Tạo bài trắc nghiệm thành công!", quiz: quizData });
-    } catch (error) {
-        dbService.logAIRequest('/api/quiz', 'Tạo đề trắc nghiệm', Date.now() - startTime, 0, 0, 'ERROR');
-        return res.status(500).json({ error: 'Không thể tạo bài trắc nghiệm. Vui lòng thử lại.' });
-    }
-});
-
-app.get('/api/history/chat', (req: Request, res: Response): any => {
-    return res.status(200).json({ history: dbService.getChatHistory() });
 });
 
 // ==========================================

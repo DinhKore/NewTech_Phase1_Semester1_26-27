@@ -53,6 +53,21 @@ export class AIService {
         return fallbackRes.response.text();
     }
 
+    // Thêm hàm này vào class AIService
+    public async generateContentStream(prompt: string) {
+        const payload = {
+            contents: [{ role: "user", parts: [{ text: prompt }] }],
+            generationConfig: {
+                maxOutputTokens: 1000,
+                temperature: 0.1,
+            }
+        };
+
+        // Sử dụng generateContentStream thay vì generateContent
+        const result = await this.primaryModel.generateContentStream(payload);
+        return result;
+    }
+
     // Sinh câu hỏi trắc nghiệm Structured Output
     public async generateQuiz(context: string): Promise<any> {
         const prompt = `Bạn là một giảng viên chuyên nghiệp. Dựa DUY NHẤT vào tài liệu dưới đây, hãy tạo 3 câu hỏi trắc nghiệm ôn tập:
