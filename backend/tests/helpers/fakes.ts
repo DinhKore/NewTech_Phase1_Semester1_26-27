@@ -28,6 +28,10 @@ export class FakeEmbeddingClient implements EmbeddingClient {
     }
     return vector;
   }
+
+  async embedBatch(texts: string[]): Promise<number[][]> {
+    return Promise.all(texts.map((t) => this.embed(t)));
+  }
 }
 
 export const VALID_QUIZ_JSON = JSON.stringify({

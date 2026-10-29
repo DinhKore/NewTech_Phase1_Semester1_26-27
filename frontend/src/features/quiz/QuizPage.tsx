@@ -11,6 +11,7 @@ import './quiz.css';
 
 export default function QuizPage() {
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
+  const [loadingDocs, setLoadingDocs] = useState(true);
   const [selectedDocId, setSelectedDocId] = useState<number | undefined>(undefined);
   const [questionCount, setQuestionCount] = useState<number>(3);
   const [generating, setGenerating] = useState(false);
@@ -21,13 +22,17 @@ export default function QuizPage() {
 
   // Load user's documents for the select dropdown
   useEffect(() => {
+    setLoadingDocs(true);
     documentsApi
-      .list({ limit: 100 })
+      .list({ limit: 50 })
       .then((res) => {
         setDocuments(res.items);
       })
-      .catch(() => {
-        // Silently ignore or allow generating across all
+      .catch((err) => {
+        console.error('Không thể tải danh sách tài liệu:', err);
+      })
+      .finally(() => {
+        setLoadingDocs(false);
       });
   }, []);
 
@@ -140,6 +145,13 @@ export default function QuizPage() {
             {generating ? 'Đang tạo câu hỏi...' : '⚡ Tạo đề trắc nghiệm'}
           </button>
         </div>
+
+        {!loadingDocs && documents.length === 0 && (
+          <div style={{ marginTop: 'var(--spacing-md)', padding: '12px 16px', background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 'var(--radius-md)', color: '#92400e', fontSize: 'var(--font-sm)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span>⚠️</span>
+            <span>Bạn chưa có tài liệu nào trong hệ thống. Vui lòng vào trang <strong>Tài liệu</strong> để tải file PDF lên trước khi bắt đầu tạo bài trắc nghiệm.</span>
+          </div>
+        )}
       </div>
 
       {generating && <LoadingBlock message="AI đang đọc tài liệu và xây dựng các phương án..." />}

@@ -3,13 +3,11 @@ import type { PdfTextExtractor, TextChunker } from '../../infrastructure/pdf/pdf
 import type { VectorIndex } from '../../infrastructure/vector/vector-index';
 import { NotFoundError, ValidationError } from '../../shared/errors/app-error';
 import type { Logger } from '../../shared/logger/logger';
-import { mapWithConcurrency } from '../../shared/utils/concurrency';
 import { normalizeUploadedFilename } from '../../shared/utils/text';
 import type { User } from '../auth/auth.types';
 import type { DocumentRepository } from './document.repository';
 import type { DocumentListQuery, DocumentRecord, NewChunk, PaginatedDocuments } from './document.types';
 
-const EMBEDDING_CONCURRENCY = 4;
 const PDF_SIGNATURE = '%PDF-';
 
 export interface DocumentServiceDeps {
@@ -54,7 +52,7 @@ export class DocumentService {
       throw new ValidationError('PDF không chứa văn bản có thể đọc (có thể là file scan dạng ảnh).');
     }
 
-    const vectors = await mapWithConcurrency(pieces, EMBEDDING_CONCURRENCY, (piece) => embeddings.embed(piece.content));
+    const vectors = await embeddings.embedBatch(pieces.map((piece) => piece.content));
     const chunks: NewChunk[] = pieces.map((piece, index) => ({
       chunkIndex: index,
       pageNumber: piece.pageNumber,

@@ -51,30 +51,43 @@ export default function DocumentsPage() {
     fetchDocuments(page, debouncedSearch);
   };
 
-  const handleUpload = async (file: File) => {
-    if (!file.name.toLowerCase().endsWith('.pdf')) {
+  const handleUploadFiles = async (files: FileList | File[]) => {
+    const fileArray = Array.from(files);
+    const pdfFiles = fileArray.filter((f) => f.name.toLowerCase().endsWith('.pdf'));
+
+    if (pdfFiles.length === 0) {
       toast.error('Hệ thống chỉ hỗ trợ định dạng file PDF.');
       return;
     }
 
     setUploading(true);
-    const toastId = toast.loading(`Đang tải lên và xử lý ${file.name}...`);
-    try {
-      await documentsApi.upload(file);
-      toast.success(`Đã thêm và phân tích tài liệu "${file.name}" thành công!`, { id: toastId });
+    let successCount = 0;
+
+    for (let i = 0; i < pdfFiles.length; i++) {
+      const file = pdfFiles[i];
+      const progressPrefix = pdfFiles.length > 1 ? `[${i + 1}/${pdfFiles.length}] ` : '';
+      const toastId = toast.loading(`${progressPrefix}Đang phân tích và xử lý ${file.name}...`);
+      try {
+        await documentsApi.upload(file);
+        toast.success(`${progressPrefix}Đã thêm tài liệu "${file.name}" thành công!`, { id: toastId });
+        successCount++;
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Tải lên tài liệu thất bại.';
+        toast.error(`${file.name}: ${message}`, { id: toastId });
+      }
+    }
+
+    setUploading(false);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    if (successCount > 0) {
       fetchDocuments(1, debouncedSearch);
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Tải lên tài liệu thất bại.';
-      toast.error(message, { id: toastId });
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) handleUpload(file);
+    if (e.target.files && e.target.files.length > 0) {
+      handleUploadFiles(e.target.files);
+    }
   };
 
   const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
@@ -89,8 +102,9 @@ export default function DocumentsPage() {
   const handleDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setIsDragging(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file) handleUpload(file);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleUploadFiles(e.dataTransfer.files);
+    }
   };
 
   const confirmDelete = async () => {
@@ -131,11 +145,12 @@ export default function DocumentsPage() {
           ref={fileInputRef}
           onChange={handleFileInputChange}
           accept="application/pdf"
+          multiple
           style={{ display: 'none' }}
         />
         <div className="upload-icon">📄</div>
         <p className="upload-prompt">
-          {uploading ? 'Đang phân tích và xử lý PDF...' : 'Kéo thả file PDF vào đây hoặc bấm để chọn tệp'}
+          {uploading ? 'Đang phân tích và xử lý PDF...' : 'Kéo thả một hoặc nhiều file PDF vào đây hoặc bấm để chọn tệp'}
         </p>
         <span className="upload-hint">Chỉ chấp nhận tệp định dạng .pdf (Tối đa 15MB)</span>
       </div>

@@ -2,51 +2,59 @@
 *::before,
 *::after {
   box-sizing: border-box;
+  margin: 0;
+  padding: 0;
 }
 
 html,
 body,
 #root {
   height: 100%;
-  margin: 0;
+  width: 100%;
 }
 
 body {
-  background: var(--color-bg);
+  background-color: var(--color-bg);
+  color: var(--color-text);
   line-height: 1.5;
-  -webkit-font-smoothing: antialiased;
+  font-family: inherit;
+  overflow-x: hidden;
 }
 
-h1,
-h2,
-h3,
-h4,
-p {
-  margin: 0;
+/* Modern Minimalist Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
 }
 
-button,
-input,
-select,
-textarea {
-  font: inherit;
-  color: inherit;
+::-webkit-scrollbar-track {
+  background: transparent;
 }
 
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-strong);
+  border-radius: var(--radius-full);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
+}
+
+/* Links & Typography resets */
 a {
   color: var(--color-primary);
+  text-decoration: none;
+  transition: color var(--transition-fast);
 }
 
-code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.9em;
-  background: var(--color-surface-muted);
-  padding: 1px 6px;
-  border-radius: 4px;
+a:hover {
+  color: var(--color-primary-hover);
 }
 
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
+code, pre {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+button, input, select, textarea {
+  font-family: inherit;
 }

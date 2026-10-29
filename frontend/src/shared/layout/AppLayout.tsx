@@ -41,8 +41,8 @@ export function AppLayout() {
 
       <aside className={`sidebar ${menuOpen ? 'open' : ''}`}>
         <div className="sidebar-brand">
-          <span>🎓</span>
-          <span>Course Assistant</span>
+          <div className="sidebar-brand-icon">🎓</div>
+          <span className="sidebar-brand-text">Course Assistant</span>
         </div>
 
         <nav className="sidebar-nav">
@@ -81,7 +81,7 @@ export function AppLayout() {
           </button>
           <span className="topbar-title">{PAGE_TITLES[location.pathname] ?? 'Course Assistant'}</span>
         </header>
-        <div className="content">
+        <div className={`content ${location.pathname === '/chat' ? 'content-chat' : ''}`}>
           <Outlet />
         </div>
       </main>

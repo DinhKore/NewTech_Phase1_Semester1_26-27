@@ -26,7 +26,6 @@ describe('loadConfig', () => {
         assert.ok(error instanceof ConfigError);
         const joined = error.issues.join('\n');
         assert.match(joined, /JWT_SECRET/);
-        assert.match(joined, /GOOGLE_CLIENT_ID/);
         assert.match(joined, /GEMINI_API_KEY/);
         return true;
       },

@@ -36,8 +36,30 @@ export default function ChatPage() {
   // Accordion open/close state for sources per message id
   const [openSources, setOpenSources] = useState<Record<number, boolean>>({});
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const [showScrollBottom, setShowScrollBottom] = useState(false);
+  const userScrolledUpRef = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
+    if (messagesContainerRef.current) {
+      messagesContainerRef.current.scrollTo({
+        top: messagesContainerRef.current.scrollHeight,
+        behavior,
+      });
+      userScrolledUpRef.current = false;
+      setShowScrollBottom(false);
+    }
+  };
+
+  const handleScroll = () => {
+    if (!messagesContainerRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef.current;
+    const distanceToBottom = scrollHeight - scrollTop - clientHeight;
+    const isUp = distanceToBottom > 120;
+    userScrolledUpRef.current = isUp;
+    setShowScrollBottom(isUp);
+  };
 
   // Load sessions on mount
   useEffect(() => {
@@ -92,10 +114,21 @@ export default function ChatPage() {
     };
   }, [activeSessionId]);
 
-  // Scroll to bottom whenever messages update
+  // Scroll to bottom when messages update, unless the user deliberately scrolled up to review older messages
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (!userScrolledUpRef.current) {
+      scrollToBottom('smooth');
+    }
   }, [messages]);
+
+  // When active session changes or loading finishes, scroll to bottom
+  useEffect(() => {
+    if (!loadingMessages && messages.length > 0) {
+      userScrolledUpRef.current = false;
+      setShowScrollBottom(false);
+      setTimeout(() => scrollToBottom('auto'), 50);
+    }
+  }, [activeSessionId, loadingMessages]);
 
   const handleCreateSession = async () => {
     try {
@@ -172,6 +205,9 @@ export default function ChatPage() {
 
     setMessages((prev) => [...prev, tempUserMsg, tempAssistantMsg]);
     setIsStreaming(true);
+    userScrolledUpRef.current = false;
+    setShowScrollBottom(false);
+    setTimeout(() => scrollToBottom('smooth'), 40);
 
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
@@ -305,7 +341,7 @@ export default function ChatPage() {
           )}
         </div>
 
-        <div className="chat-messages">
+        <div className="chat-messages" ref={messagesContainerRef} onScroll={handleScroll}>
           {loadingMessages ? (
             <LoadingBlock message="Đang tải lịch sử trò chuyện..." />
           ) : messages.length === 0 ? (
@@ -370,8 +406,18 @@ export default function ChatPage() {
               </div>
             ))
           )}
-          <div ref={messagesEndRef} />
         </div>
+
+        {showScrollBottom && (
+          <button
+            type="button"
+            className="scroll-to-bottom-btn"
+            onClick={() => scrollToBottom('smooth')}
+            aria-label="Cuộn xuống tin nhắn mới nhất"
+          >
+            ⬇ Xuống tin nhắn mới
+          </button>
+        )}
 
         {/* Input Footer Area */}
         <div className="chat-input-area">

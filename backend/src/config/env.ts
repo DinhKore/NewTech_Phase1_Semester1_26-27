@@ -28,7 +28,7 @@ const EnvSchema = z
 
     GEMINI_API_KEY: z.string().min(1, 'is required'),
     GEMINI_CHAT_MODEL: z.string().min(1).default('gemini-flash-lite-latest'),
-    GEMINI_FALLBACK_MODEL: z.string().min(1).default('gemini-3.5-flash-latest'),
+    GEMINI_FALLBACK_MODEL: z.string().min(1).default('gemini-flash-latest'),
     GEMINI_EMBEDDING_MODEL: z.string().min(1).default('gemini-embedding-2'),
     AI_PRICE_INPUT_PER_1M: z.coerce.number().nonnegative().default(0.1),
     AI_PRICE_OUTPUT_PER_1M: z.coerce.number().nonnegative().default(0.4),

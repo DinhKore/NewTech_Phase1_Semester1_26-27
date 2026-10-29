@@ -136,20 +136,40 @@ export class GeminiEmbeddingClient implements EmbeddingClient {
   }
 
   async embed(text: string): Promise<number[]> {
+    const results = await this.embedBatch([text]);
+    return results[0] ?? [];
+  }
+
+  async embedBatch(texts: string[]): Promise<number[][]> {
+    if (texts.length === 0) return [];
+
+    const BATCH_SIZE = 50;
+    const allVectors: number[][] = [];
+
     try {
-      return await withRetry(
-        async () => {
-          const result = await this.model.embedContent(text);
-          return result.embedding.values;
-        },
-        {
-          attempts: 3,
-          baseDelayMs: 500,
-          shouldRetry: isTransientAiError,
-          onRetry: (error, attempt, delayMs) =>
-            this.logger.warn('gemini embedding failed, retrying', { attempt, delayMs, err: error }),
-        },
-      );
+      for (let i = 0; i < texts.length; i += BATCH_SIZE) {
+        const slice = texts.slice(i, i + BATCH_SIZE);
+        const vectors = await withRetry(
+          async () => {
+            const res = await this.model.batchEmbedContents({
+              requests: slice.map((text) => ({
+                content: { role: 'user', parts: [{ text }] },
+              })),
+            });
+            return res.embeddings.map((e) => e.values);
+          },
+          {
+            attempts: 5,
+            baseDelayMs: 1500,
+            shouldRetry: isTransientAiError,
+            onRetry: (error, attempt, delayMs) =>
+              this.logger.warn('gemini batch embedding failed, retrying', { attempt, delayMs, err: error }),
+          },
+        );
+        allVectors.push(...vectors);
+      }
+
+      return allVectors;
     } catch (error) {
       throw new AiUnavailableError(error);
     }

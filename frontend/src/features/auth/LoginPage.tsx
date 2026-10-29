@@ -32,21 +32,33 @@ export default function LoginPage() {
   return (
     <div className="login-page">
       <div className="login-card">
+        <div className="login-badge">
+          <span>✨</span> NỀN TẢNG HỌC TẬP THÔNG MINH AI
+        </div>
+
         <div className="login-logo">🎓</div>
-        <h1>Course Assistant</h1>
+
+        <h1 className="login-title">Course Assistant</h1>
         <p className="login-subtitle">
-          Trợ lý học tập AI: hỏi đáp và ôn tập dựa trên chính tài liệu bài giảng của bạn.
+          Trợ lý AI thế hệ mới: Đọc hiểu giáo trình PDF, giải đáp thắc mắc chuyên sâu và tự động tạo đề thi trắc nghiệm ôn tập.
         </p>
+
+        <div className="login-features-list">
+          <span className="login-feature-tag">⚡ RAG Trích xuất</span>
+          <span className="login-feature-tag">🤖 Streaming Chat</span>
+          <span className="login-feature-tag">📝 Trắc nghiệm Zod</span>
+          <span className="login-feature-tag">🛡️ Multi-tenancy</span>
+        </div>
 
         {isSigningIn ? (
           <div className="loading-block">
             <span className="spinner" />
-            <span>Đang xác thực...</span>
+            <span>Đang xác thực thông tin...</span>
           </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', alignItems: 'center' }}>
+          <div className="login-action-box">
             {env.googleClientId && (
-              <div className="login-google-button">
+              <div style={{ display: 'flex', justifyContent: 'center' }}>
                 <GoogleLogin
                   onSuccess={(response) => void handleSuccess(response.credential)}
                   onError={() => toast.error('Đăng nhập Google bị hủy hoặc thất bại.')}
@@ -57,21 +69,19 @@ export default function LoginPage() {
               </div>
             )}
 
-            {/* Dev quick login button if Google Client ID is not configured yet or for instant testing */}
-            <div style={{ width: '100%', textAlign: 'center' }}>
-              <button
-                type="button"
-                className="btn btn-secondary"
-                style={{ width: '100%', padding: '0.65rem 1rem' }}
-                onClick={() => handleSuccess('mock|sinhvien@test.edu.vn')}
-              >
-                🚀 Đăng nhập nhanh (Chế độ Thử nghiệm)
-              </button>
-            </div>
+            <button
+              type="button"
+              className="btn-dev-login"
+              onClick={() => handleSuccess('mock|sinhvien@test.edu.vn')}
+            >
+              🚀 Vào ngay (Chế độ Thử nghiệm)
+            </button>
           </div>
         )}
 
-        <p className="login-footnote">Đăng nhập bằng OAuth 2.0 (Google). Phiên làm việc được bảo vệ bằng JWT.</p>
+        <div className="login-footnote">
+          <span>🔒 Bảo mật phiên bằng Stateless JWT · Chuẩn Clean OOP Architecture</span>
+        </div>
       </div>
     </div>
   );
