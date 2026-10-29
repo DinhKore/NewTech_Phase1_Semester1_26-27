@@ -2,7 +2,7 @@
 
 > **Đồ án môn học:** Công nghệ Mới trong Phát triển Phần mềm  
 > **Học kỳ:** 1 — Năm học 2026 - 2027  
-> **Sinh viên thực hiện:** Đỗ Vũ Gia Định  
+> **Sinh viên thực hiện: Hàn Minh Đính 
 > **Quy mô nhóm:** 01 thành viên (Solo)  
 > **Phiên bản:** 2.0.0 (Clean Architecture & Production Ready)  
 
